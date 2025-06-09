@@ -14,6 +14,8 @@ COPY . /app
 # Install system-level dependencies (for audio, etc.)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    build-essential \
+    python3-dev \
     libasound2-dev \
     portaudio19-dev \
     libportaudio2 \
