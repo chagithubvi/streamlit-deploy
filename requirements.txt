@@ -1,0 +1,14 @@
+langchain
+langchain-groq
+deepgram-sdk==2.12.0
+edge_tts
+sounddevice
+numpy 
+scipy
+websockets
+webrtcvad
+pygame
+asyncio
+word2number
+streamlit
+python-dotenv
