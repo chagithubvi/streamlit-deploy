@@ -1,20 +1,16 @@
-# Use an official Python image
 FROM python:3.10-slim
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Set working directory
 WORKDIR /app
 
-# Copy project files
-COPY . /app
-
-# Install system-level dependencies (for audio, etc.)
-RUN apt-get update && apt-get install -y \
+# Install system dependencies for building and audio support
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     build-essential \
+    gcc \
+    libc6-dev \
     python3-dev \
     libasound2-dev \
     portaudio19-dev \
@@ -26,12 +22,18 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy only requirements first for better cache
+COPY requirements.txt /app/
+
+# Upgrade pip, setuptools, wheel before installing requirements
+RUN pip install --upgrade pip setuptools wheel
+
 # Install Python dependencies
-RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Expose the Streamlit port
+# Copy rest of the app files
+COPY . /app
+
 EXPOSE 8501
 
-# Run Streamlit
-CMD ["streamlit", "run", "ui_streamlit.py", "--server.port=8501", "--server.address=0.0.0.0",  "--server.enableCORS=false"]
+CMD ["streamlit", "run", "ui_streamlit.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false"]
