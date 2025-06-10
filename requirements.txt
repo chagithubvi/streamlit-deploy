@@ -6,7 +6,7 @@ sounddevice
 numpy 
 scipy
 websockets
-git+https://github.com/wiseman/py-webrtcvad.git
+webrtcvad-wheel==2.0.10
 pygame
 asyncio
 word2number
