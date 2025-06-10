@@ -8,8 +8,8 @@ import word2number as w2n
 from zoneinfo import ZoneInfo
 from zoneinfo import available_timezones
 from datetime import datetime
+import streamlit as st
 import edge_tts
-import pygame
 import io
 import asyncio
 import numpy as np
@@ -62,9 +62,6 @@ def record_until_silence(sample_rate=SAMPLE_RATE, FRAME_DURATION=30, silence_lim
 
     print("Recording stopped.")
     return np.concatenate(list(buffer))
-
-pygame.init()
-pygame.mixer.init()
 
 
 warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
@@ -227,7 +224,7 @@ def is_continuation_of_smart_home_command(conversation_history, user_input):
 def play_tts(response_text):
     tts_text = response_text.replace("Aiva", "Aayva")
 
-    async def speak(text):
+    async def synthesize_and_return_audio(text):
         communicate = edge_tts.Communicate(text, VOICE)
         stream = io.BytesIO()
 
@@ -235,16 +232,14 @@ def play_tts(response_text):
             if chunk["type"] == "audio":
                 stream.write(chunk["data"])
 
-        stream.seek(0)  # Reset to beginning
+        stream.seek(0)
+        return stream
 
-        # Load and play the audio from memory
-        pygame.mixer.music.load(stream, namehint="mp3")
-        pygame.mixer.music.play()
+    audio_stream = asyncio.run(synthesize_and_return_audio(tts_text))
 
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
+    # Stream to browser via Streamlit
+    st.audio(audio_stream.read(), format="audio/mp3")
 
-    asyncio.run(speak(tts_text))
 
 
 # --- Smart Home Responses ---
