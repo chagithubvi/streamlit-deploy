@@ -7,21 +7,23 @@ WORKDIR /app
 
 # Install system dependencies for building and audio support
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git  \
+    git \
     ffmpeg \
-    build-essential \
-    gcc \
-    libc6-dev \
-    python3-dev \
-    libasound2-dev \
-    portaudio19-dev \
-    libportaudio2 \
-    libportaudiocpp0 \
     libavdevice-dev \
     libavfilter-dev \
     libopus-dev \
-    libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+    libvpx-dev \
+    libavformat-dev \
+    libavcodec-dev \
+    libswresample-dev \
+    libavutil-dev \
+    libssl-dev \
+    libxrender1 \
+    libxext6 \
+    libglib2.0-0 \
+    gcc \
+    pkg-config \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy only requirements first for better cache
 COPY requirements.txt /app/
