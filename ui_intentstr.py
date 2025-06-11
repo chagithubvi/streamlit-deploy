@@ -1,19 +1,21 @@
 from dotenv import load_dotenv
+load_dotenv()
 from langchain_groq import ChatGroq
 from langchain.schema import HumanMessage, SystemMessage
 from langchain_core._api.deprecation import LangChainDeprecationWarning
 from deepgram import Deepgram
-import sounddevice as sd
 import word2number as w2n
 from zoneinfo import ZoneInfo
 from zoneinfo import available_timezones
 from datetime import datetime
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
+import av
 import streamlit as st
 import edge_tts
 import io
 import asyncio
 import numpy as np
-import tempfile
+import threading
 import warnings
 import random
 import re
@@ -22,7 +24,6 @@ import webrtcvad
 import collections
 from scipy.io.wavfile import write
 
-load_dotenv()
 
 # Configured values
 API_KEY = os.getenv("API_KEY")
@@ -34,34 +35,12 @@ FRAME_DURATION = 30
 FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION / 1000)
 BUFFER_DURATION = 0.5   #Seconds to wait to stop synthes
 
-def record_until_silence(sample_rate=SAMPLE_RATE, FRAME_DURATION=30, silence_limit_sec=1.0):
-    
-    vad = webrtcvad.Vad(2)  # Aggressiveness: 0 (less) - 3 (more)
-    frame_size = int(sample_rate * FRAME_DURATION / 1000)
-    buffer = collections.deque()
-    silence_limit_frames = int(silence_limit_sec * 1000 / FRAME_DURATION)
 
-    print("Listening...")
+vad = webrtcvad.Vad(2)  # Aggressiveness level
+frame_buffer = []
+silence_counter = 0
+silence_limit_frames = int(1000 / FRAME_DURATION)  # 1 second of silence
 
-    stream = sd.InputStream(samplerate=sample_rate, channels=1, dtype='int16', blocksize=frame_size)
-    with stream:
-        silence_counter = 0
-        while True:
-            audio_chunk, _ = stream.read(frame_size)
-            audio_bytes = audio_chunk.tobytes()
-            is_speech = vad.is_speech(audio_bytes, sample_rate)
-
-            buffer.append(audio_chunk.copy())
-
-            if is_speech:
-                silence_counter = 0
-            else:
-                silence_counter += 1
-                if silence_counter > silence_limit_frames:
-                    break
-
-    print("Recording stopped.")
-    return np.concatenate(list(buffer))
 
 
 warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
@@ -316,30 +295,83 @@ def chat_with_Aayva(user_input, chat_model , conversation_history):
     return response.content.strip()
 
 #Speech Input
+AUDIO_FILENAME = "output.wav"
+
+# Global shared buffer for VAD recording
+vad_buffer_lock = threading.Lock()
+vad_buffer = {
+    "frames": [],
+    "silence_counter": 0,
+    "recording_complete": False
+}
+
+def reset_vad_buffer():
+    with vad_buffer_lock:
+        vad_buffer["frames"] = []
+        vad_buffer["silence_counter"] = 0
+        vad_buffer["recording_complete"] = False
+
+def audio_frame_callback(frame: av.AudioFrame):
+    if vad_buffer["recording_complete"]:
+        return
+
+    audio = frame.to_ndarray().flatten().astype(np.int16)
+    audio_bytes = audio.tobytes()
+
+    if vad.is_speech(audio_bytes, SAMPLE_RATE):
+        vad_buffer["silence_counter"] = 0
+    else:
+        vad_buffer["silence_counter"] += 1
+
+    with vad_buffer_lock:
+        vad_buffer["frames"].append(audio)
+
+    if vad_buffer["silence_counter"] > silence_limit_frames:
+        vad_buffer["recording_complete"] = True
+
 def get_speech_input():
-    audio_array = record_until_silence(sample_rate=SAMPLE_RATE)
-    
-    # Save in memory buffer
+    reset_vad_buffer()
+
+    webrtc_ctx = webrtc_streamer(
+        key="vad_audio_stream",
+        mode=WebRtcMode.SENDONLY,
+        audio_frame_callback=audio_frame_callback,
+        media_stream_constraints={"audio": True, "video": False},
+        async_processing=True,
+    )
+
+    while webrtc_ctx.state.playing and not vad_buffer["recording_complete"]:
+        st.sleep(0.1)
+
+    if not vad_buffer["frames"]:
+        st.warning("No audio captured.")
+        return ""
+
+    # Combine audio and convert to WAV
+    audio_array = np.concatenate(vad_buffer["frames"])
     wav_buffer = io.BytesIO()
     write(wav_buffer, SAMPLE_RATE, audio_array)
     wav_buffer.seek(0)
 
-    # Transcribe using Deepgram
+    # Transcribe with Deepgram
     dg_client = Deepgram(DEEPGRAM_KEY)
     source = {'buffer': wav_buffer, 'mimetype': 'audio/wav'}
-    response = asyncio.run(
-        dg_client.transcription.prerecorded(
-            source,
-            {
-                'model': 'nova',
-                'punctuate': True,
-                'smart_format': True
-            }
+    try:
+        response = asyncio.run(
+            dg_client.transcription.prerecorded(
+                source,
+                {
+                    'model': 'nova',
+                    'punctuate': True,
+                    'smart_format': True
+                }
+            )
         )
-    )
-    transcript = response['results']['channels'][0]['alternatives'][0]['transcript']
-    return transcript.strip()
-
+        transcript = response['results']['channels'][0]['alternatives'][0]['transcript']
+        return transcript.strip()
+    except Exception as e:
+        st.error(f"Transcription error: {e}")
+        return ""
 
 # --- Main Loop ---
 def aayva_response_from_text(user_input, chat_model, conversation_history):
