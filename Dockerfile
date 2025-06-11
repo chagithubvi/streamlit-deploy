@@ -13,17 +13,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavfilter-dev \
     libopus-dev \
     libvpx-dev \
+    pkg-config \
+    libxrender1 \
+    libxext6 \
     libavformat-dev \
     libavcodec-dev \
     libswresample-dev \
     libavutil-dev \
     libssl-dev \
+    libglib2.0-0 \
+    libsm6 \
     libxrender1 \
     libxext6 \
-    libglib2.0-0 \
+    ffmpeg \
     gcc \
-    pkg-config \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+   
 
 # Copy only requirements first for better cache
 COPY requirements.txt /app/
