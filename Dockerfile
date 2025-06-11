@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \ 
     gcc \
     ffmpeg \
+    build-essential \
     python3-dev \
     libopus-dev \
     libvpx-dev \
