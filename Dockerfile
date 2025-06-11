@@ -7,8 +7,13 @@ WORKDIR /app
 
 # Install system dependencies for building and audio support
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
+    git \ 
+    gcc \
     ffmpeg \
+    python3-dev \
+    libopus-dev \
+    libvpx-dev \
+    libavformat-dev \
     libavdevice-dev \
     libavfilter-dev \
     libopus-dev \
@@ -16,17 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libxrender1 \
     libxext6 \
+    libglib2.0-0 \
+    libsm6 \
     libavformat-dev \
     libavcodec-dev \
     libswresample-dev \
     libavutil-dev \
     libssl-dev \
-    libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
-    ffmpeg \
-    gcc \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
    
