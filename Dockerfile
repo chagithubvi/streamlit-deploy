@@ -17,14 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavformat-dev \
     libavdevice-dev \
     libavfilter-dev \
-    libopus-dev \
-    libvpx-dev \
     pkg-config \
     libxrender1 \
     libxext6 \
     libglib2.0-0 \
     libsm6 \
-    libavformat-dev \
     libavcodec-dev \
     libswresample-dev \
     libavutil-dev \
