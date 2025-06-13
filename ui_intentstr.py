@@ -8,22 +8,19 @@ import word2number as w2n
 from zoneinfo import ZoneInfo
 from zoneinfo import available_timezones
 from datetime import datetime
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import av
 import streamlit as st
 import edge_tts
+import tempfile
+from audio_recorder_streamlit import audio_recorder
 import io
 import asyncio
 import numpy as np
-import threading
 import warnings
 import random
 import re
 import os
-import webrtcvad
-import collections
+import base64
 from scipy.io.wavfile import write
-
 
 # Configured values
 API_KEY = os.getenv("API_KEY")
@@ -35,13 +32,7 @@ FRAME_DURATION = 30
 FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION / 1000)
 BUFFER_DURATION = 0.5   #Seconds to wait to stop synthes
 
-
-vad = webrtcvad.Vad(2)  # Aggressiveness level
-frame_buffer = []
-silence_counter = 0
-silence_limit_frames = int(1000 / FRAME_DURATION)  # 1 second of silence
-
-
+chat_model = ChatGroq(api_key=API_KEY, model_name=MODEL)
 
 warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
 
@@ -65,7 +56,6 @@ ADMIN_KEYWORDS = [
 ADMIN_ACTION = [
     "grant" , "give" , "change" , "add" , "remove" , "show"
 ]
-
 
 GOODBYE_PHRASES = {"exit", "goodbye", "bye", "see you", "see you later", "talk to you later"}
 GOODBYES = [
@@ -100,37 +90,32 @@ def is_smart_home_command(user_input):
     )
 
 def get_time_by_location(user_input):
-    
     ALIASES = {
-    # US States
-    "california": "America/Los_Angeles",
-    "texas": "America/Chicago",
-    "florida": "America/New_York",
-    "new york": "America/New_York",
-    "washington": "America/Los_Angeles",
-
-    # Canadian Provinces
-    "ontario": "America/Toronto",
-    "british columbia": "America/Vancouver",
-    "quebec": "America/Montreal",
-
-    # Indian cities/states
-    "mumbai": "Asia/Kolkata",
-    "delhi": "Asia/Kolkata",
-    "bangalore": "Asia/Kolkata",
-    "maharashtra": "Asia/Kolkata",
-    "gujarat": "Asia/Kolkata",
-
-    # Countries
-    "canada": "America/Toronto",
-    "india": "Asia/Kolkata",
-    "usa": "America/New_York",
-    "united states": "America/New_York",
-    "germany": "Europe/Berlin",
-    "uk": "Europe/London",
-    "united kingdom": "Europe/London"
-}
-
+        # US States
+        "california": "America/Los_Angeles",
+        "texas": "America/Chicago",
+        "florida": "America/New_York",
+        "new york": "America/New_York",
+        "washington": "America/Los_Angeles",
+        # Canadian Provinces
+        "ontario": "America/Toronto",
+        "british columbia": "America/Vancouver",
+        "quebec": "America/Montreal",
+        # Indian cities/states
+        "mumbai": "Asia/Kolkata",
+        "delhi": "Asia/Kolkata",
+        "bangalore": "Asia/Kolkata",
+        "maharashtra": "Asia/Kolkata",
+        "gujarat": "Asia/Kolkata",
+        # Countries
+        "canada": "America/Toronto",
+        "india": "Asia/Kolkata",
+        "usa": "America/New_York",
+        "united states": "America/New_York",
+        "germany": "Europe/Berlin",
+        "uk": "Europe/London",
+        "united kingdom": "Europe/London"
+    }
 
     match = re.search(r"\btime(?:.*in)? ([\w\s]+)", user_input.lower())
     if match:
@@ -154,7 +139,6 @@ def get_time_by_location(user_input):
 
     return None
 
-
 def extract_gear_value(text):
     text = text.lower().strip()
     match = re.search(r"\bgear\s*(?:to|at)?\s*([\w\-]+)", text)
@@ -169,7 +153,6 @@ def extract_gear_value(text):
             if value.isdigit():
                 return value
     return None
-
 
 def is_smart_home_question(user_input):
     input_lower = user_input.lower()
@@ -215,11 +198,16 @@ def play_tts(response_text):
         return stream
 
     audio_stream = asyncio.run(synthesize_and_return_audio(tts_text))
+    audio_bytes = audio_stream.read()
 
-    # Stream to browser via Streamlit
-    st.audio(audio_stream.read(), format="audio/mp3")
-
-
+    # Hide player and autoplay
+    b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+    html_audio = f"""
+        <audio autoplay style= "display:none;">
+            <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
+        </audio>
+    """
+    st.markdown(html_audio, unsafe_allow_html=True)
 
 # --- Smart Home Responses ---
 def smart_home_response(user_input, chat_model, conversation_history):
@@ -264,7 +252,7 @@ def smart_home_response(user_input, chat_model, conversation_history):
         "OR\n"
         "'Of course. Passing it to our smart home system.'\n"
         "Then follow up with a brief, natural comment or question specifically related to that command. "
-        "Avoid repeating commands and keep  responses under 30 words. "
+        "Avoid repeating commands and keep responses under 30 words. "
         "Recent conversation:\n" + history_text
     ))
     messages = [system_prompt, HumanMessage(content=user_input)]
@@ -272,7 +260,7 @@ def smart_home_response(user_input, chat_model, conversation_history):
     return response.content.strip()
 
 # --- Chat Response ---
-def chat_with_Aayva(user_input, chat_model , conversation_history):
+def chat_with_Aayva(user_input, chat_model, conversation_history):
     faq_answer = check_faq(user_input)
     if faq_answer:
         return faq_answer
@@ -294,66 +282,12 @@ def chat_with_Aayva(user_input, chat_model , conversation_history):
     response = chat_model.invoke(messages, temperature=0.7, max_tokens=75)
     return response.content.strip()
 
-#Speech Input
-AUDIO_FILENAME = "output.wav"
-
-# Global shared buffer for VAD recording
-vad_buffer_lock = threading.Lock()
-vad_buffer = {
-    "frames": [],
-    "silence_counter": 0,
-    "recording_complete": False
-}
-
-def reset_vad_buffer():
-    with vad_buffer_lock:
-        vad_buffer["frames"] = []
-        vad_buffer["silence_counter"] = 0
-        vad_buffer["recording_complete"] = False
-
-def audio_frame_callback(frame: av.AudioFrame):
-    if vad_buffer["recording_complete"]:
-        return
-
-    audio = frame.to_ndarray().flatten().astype(np.int16)
-    audio_bytes = audio.tobytes()
-
-    if vad.is_speech(audio_bytes, SAMPLE_RATE):
-        vad_buffer["silence_counter"] = 0
-    else:
-        vad_buffer["silence_counter"] += 1
-
-    with vad_buffer_lock:
-        vad_buffer["frames"].append(audio)
-
-    if vad_buffer["silence_counter"] > silence_limit_frames:
-        vad_buffer["recording_complete"] = True
-
-def get_speech_input():
-    reset_vad_buffer()
-
-    webrtc_ctx = webrtc_streamer(
-        key="vad_audio_stream",
-        mode=WebRtcMode.SENDONLY,
-        audio_frame_callback=audio_frame_callback,
-        media_stream_constraints={"audio": True, "video": False},
-        async_processing=True,
-    )
-
-    while webrtc_ctx.state.playing and not vad_buffer["recording_complete"]:
-        st.sleep(0.1)
-
-    if not vad_buffer["frames"]:
-        st.warning("No audio captured.")
+# --- Speech Input ---
+def get_speech_input(audio_bytes):
+    if not audio_bytes:  # Handle None or empty audio_bytes
         return ""
-
-    # Combine audio and convert to WAV
-    audio_array = np.concatenate(vad_buffer["frames"])
-    wav_buffer = io.BytesIO()
-    write(wav_buffer, SAMPLE_RATE, audio_array)
-    wav_buffer.seek(0)
-
-    # Transcribe with Deepgram
+    
+    wav_buffer = io.BytesIO(audio_bytes)
     dg_client = Deepgram(DEEPGRAM_KEY)
     source = {'buffer': wav_buffer, 'mimetype': 'audio/wav'}
     try:
@@ -390,5 +324,3 @@ def aayva_response_from_text(user_input, chat_model, conversation_history):
 
     conversation_history.append({"user": user_input, "aayva": response})
     return response, conversation_history
-
-
