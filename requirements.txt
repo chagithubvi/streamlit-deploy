@@ -6,10 +6,9 @@ numpy
 scipy
 websockets
 webrtcvad==2.0.10
-streamlit-webrtc==0.62.4
 av==14.4.0
-pygame
 asyncio
 word2number
 streamlit
 python-dotenv
+audio-recorder-streamlit
