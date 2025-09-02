@@ -185,29 +185,26 @@ def is_continuation_of_smart_home_command(conversation_history, user_input):
 # --- TTS Function ---
 def play_tts(response_text):
     tts_text = response_text.replace("Aiva", "Aayva")
-
     async def synthesize_and_return_audio(text):
-        communicate = edge_tts.Communicate(text, VOICE)
+        communicate = edge_tts.Communicate(text, "en-US-JennyNeural")
         stream = io.BytesIO()
-
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 stream.write(chunk["data"])
-
         stream.seek(0)
         return stream
-
     audio_stream = asyncio.run(synthesize_and_return_audio(tts_text))
-    audio_bytes = audio_stream.read()
-
-    # Hide player and autoplay
-    b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-    html_audio = f"""
-        <audio autoplay style= "display:none;">
-            <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
-        </audio>
-    """
-    st.markdown(html_audio, unsafe_allow_html=True)
+    try:
+        audio_bytes = audio_stream.read()
+        b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+        html_audio = f"""
+            <audio autoplay style="display:none;">
+                <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
+            </audio>
+        """
+        st.markdown(html_audio, unsafe_allow_html=True)
+    finally:
+        audio_stream.close() 
 
 # --- Smart Home Responses ---
 def smart_home_response(user_input, chat_model, conversation_history):
